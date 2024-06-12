@@ -1,50 +1,62 @@
 #include <ArduinoBLE.h>
 
-static const char* greeting = "Hello World!";
-
-BLEService greetingService("180C");  // User defined service
-
-BLEStringCharacteristic greetingCharacteristic("2A56",  // standard 16-bit characteristic UUID
-    BLERead, 13); // remote clients will only be able to read this
+// UUIDs for services and characteristics
+BLEService geoService("cd48409a-f3cc-11ed-a05b-0242ac120003");
+BLECharacteristic geoCharacteristic("cd48409a-f3cc-11ed-a05b-0242ac120003", BLERead | BLEWrite, 20);
+BLECharacteristic startStopCharacteristic("cd484232-f3cc-11ed-a05b-0242ac120003", BLERead | BLEWrite, 1);
 
 void setup() {
-  Serial.begin(9600);    // initialize serial communication
+  Serial.begin(9600);
   while (!Serial);
 
-  pinMode(LED_BUILTIN, OUTPUT); // initialize the built-in LED pin
-
-  if (!BLE.begin()) {   // initialize BLE
+  if (!BLE.begin()) {
     Serial.println("starting BLE failed!");
     while (1);
   }
 
-  BLE.setLocalName("Nano33BLE");  // Set name for connection
-  BLE.setAdvertisedService(greetingService); // Advertise service
-  greetingService.addCharacteristic(greetingCharacteristic); // Add characteristic to service
-  BLE.addService(greetingService); // Add service
-  greetingCharacteristic.setValue(greeting); // Set greeting string
+  BLE.setLocalName("drone_arduino");
+  BLE.setAdvertisedService(geoService);
+  
+  geoService.addCharacteristic(geoCharacteristic);
+  geoService.addCharacteristic(startStopCharacteristic);
+  
+  BLE.addService(geoService);
 
-  BLE.advertise();  // Start advertising
-  Serial.print("Peripheral device MAC: ");
-  Serial.println(BLE.address());
-  Serial.println("Waiting for connections...");
+  BLE.advertise();
+
+  Serial.println("BLE Geolocation Peripheral");
 }
 
 void loop() {
-  BLEDevice central = BLE.central();  // Wait for a BLE central to connect
+  BLEDevice central = BLE.central();
 
-  // if a central is connected to the peripheral:
   if (central) {
-    Serial.print("Connected to central MAC: ");
-    // print the central's BT address:
+    Serial.print("Connected to central: ");
     Serial.println(central.address());
-    // turn on the LED to indicate the connection:
-    digitalWrite(LED_BUILTIN, HIGH);
 
-    while (central.connected()){} // keep looping while connected
-    
-    // when the central disconnects, turn off the LED:
-    digitalWrite(LED_BUILTIN, LOW);
-    Serial.print("Disconnected from central MAC: ");
+    while (central.connected()) {
+      if (geoCharacteristic.written()) {
+        const uint8_t* receivedValue = geoCharacteristic.value();
+        size_t length = geoCharacteristic.valueLength();
+        
+        char receivedData[length + 1];
+        memcpy(receivedData, receivedValue, length);
+        receivedData[length] = '\0'; 
+        
+        Serial.println("Received geolocation: " + String(receivedData));
+      }
+
+      if (startStopCharacteristic.written()) {
+        uint8_t command = startStopCharacteristic.value()[0];
+        if (command == 0x01) {
+          Serial.println("Received start command");
+        } else if (command == 0x00) {
+          Serial.println("Received stop command");
+        }
+      }
+    }
+
+    Serial.print("Disconnected from central: ");
     Serial.println(central.address());
   }
+}
